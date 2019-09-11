@@ -25,23 +25,27 @@ import java.io.PrintStream;
 @Configuration
 public class FtpIntegrationConfig {
 
+    @Value("${remote-directory:uploads}")
+    private String remoteDirectory;
+
     @Bean
-    private DefaultFtpSessionFactory ftpFileSessionFactory(
+    DefaultFtpSessionFactory ftpFileSessionFactory(
         @Value("${ftp.host:localhost}") String host,
-        @Value("${ftp.port:2121}") int port,
-        @Value("${ftp.username:2121}") String username,
-        @Value("${ftp.password:2121}") String password) {
+        @Value("${ftp.port:21}") int port,
+        @Value("${ftp.username:ftpusername}") String username,
+        @Value("${ftp.password:ftppassword}") String password) {
         DefaultFtpSessionFactory ftpSessionFactory = new DefaultFtpSessionFactory();
         ftpSessionFactory.setHost(host);
         ftpSessionFactory.setPort(port);
         ftpSessionFactory.setPassword(password);
         ftpSessionFactory.setUsername(username);
+        ftpSessionFactory.setClientMode(2);     // Passive Mode
 
         return ftpSessionFactory;
     }
 
     @Bean
-    private IntegrationFlow files(@Value("${input-directory") File in, Environment environment,
+    IntegrationFlow files(@Value("${input-directory:${HOME}/Desktop/in}") File in, Environment environment,
                                   DefaultFtpSessionFactory ftpSessionFactory) {
 
         GenericTransformer<File, Message<String>> fileStringGenericTransformer = (File source) -> {
@@ -60,9 +64,11 @@ public class FtpIntegrationConfig {
         };
 
         return IntegrationFlows
-            .from(Files.inboundAdapter(in).autoCreateDirectory(true).preventDuplicates(true).patternFilter("*.jpg"))
+            .from(Files.inboundAdapter(in).autoCreateDirectory(true).preventDuplicates(true).patternFilter("*.jpg"),
+                  poller -> poller.poller(pm -> pm.fixedRate(1000)))
             .transform(File.class, fileStringGenericTransformer)
             .handle(Ftp.outboundAdapter(ftpSessionFactory)
+                       .remoteDirectory(remoteDirectory)
                        .fileNameGenerator(message -> {
                            Object o = message.getHeaders().get(FileHeaders.FILENAME);
                            String fileName = String.class.cast(o);
