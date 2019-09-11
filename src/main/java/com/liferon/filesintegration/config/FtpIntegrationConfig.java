@@ -8,6 +8,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.integration.dsl.IntegrationFlows;
+import org.springframework.integration.dsl.MessageChannels;
 import org.springframework.integration.file.FileHeaders;
 import org.springframework.integration.file.dsl.Files;
 import org.springframework.integration.ftp.dsl.Ftp;
@@ -15,6 +16,7 @@ import org.springframework.integration.ftp.session.DefaultFtpSessionFactory;
 import org.springframework.integration.support.MessageBuilder;
 import org.springframework.integration.transformer.GenericTransformer;
 import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageChannel;
 import org.springframework.util.ReflectionUtils;
 
 import java.io.ByteArrayOutputStream;
@@ -27,22 +29,6 @@ public class FtpIntegrationConfig {
 
     @Value("${remote-directory:uploads}")
     private String remoteDirectory;
-
-    @Bean
-    DefaultFtpSessionFactory ftpFileSessionFactory(
-        @Value("${ftp.host:localhost}") String host,
-        @Value("${ftp.port:21}") int port,
-        @Value("${ftp.username:ftpusername}") String username,
-        @Value("${ftp.password:ftppassword}") String password) {
-        DefaultFtpSessionFactory ftpSessionFactory = new DefaultFtpSessionFactory();
-        ftpSessionFactory.setHost(host);
-        ftpSessionFactory.setPort(port);
-        ftpSessionFactory.setPassword(password);
-        ftpSessionFactory.setUsername(username);
-        ftpSessionFactory.setClientMode(2);     // Passive Mode
-
-        return ftpSessionFactory;
-    }
 
     @Bean
     IntegrationFlow files(@Value("${input-directory:${HOME}/Desktop/in}") File in, Environment environment,
@@ -67,12 +53,24 @@ public class FtpIntegrationConfig {
             .from(Files.inboundAdapter(in).autoCreateDirectory(true).preventDuplicates(true).patternFilter("*.jpg"),
                   poller -> poller.poller(pm -> pm.fixedRate(1000)))
             .transform(File.class, fileStringGenericTransformer)
-            .handle(Ftp.outboundAdapter(ftpSessionFactory)
-                       .remoteDirectory(remoteDirectory)
-                       .fileNameGenerator(message -> {
-                           Object o = message.getHeaders().get(FileHeaders.FILENAME);
-                           String fileName = String.class.cast(o);
-                           return fileName.split("\\.")[0]+".txt";
-                       })).get();
+            .channel(this.asciiProcessor())
+            .get();
+    }
+
+    @Bean
+    IntegrationFlow ftp(DefaultFtpSessionFactory ftpSessionFactory) {
+        return IntegrationFlows.from(this.asciiProcessor())
+        .handle(Ftp.outboundAdapter(ftpSessionFactory)
+                   .remoteDirectory(remoteDirectory)
+                   .fileNameGenerator(message -> {
+                       Object o = message.getHeaders().get(FileHeaders.FILENAME);
+                       String fileName = String.class.cast(o);
+                       return fileName.split("\\.")[0]+".txt";
+                   })).get();
+    }
+
+    @Bean
+    MessageChannel asciiProcessor() {
+        return MessageChannels.publishSubscribe().get();
     }
 }
